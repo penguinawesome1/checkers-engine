@@ -1,10 +1,7 @@
-#ifndef INPUT_H
-#define INPUT_H
-#include "pieces.h"
+#include "input.h"
 #include <algorithm>
 #include <iostream>
 #include <string>
-#include <vector>
 
 namespace input {
 
@@ -53,5 +50,3 @@ getPlayerMove(const std::vector<Checkers::MoveCords> possibleMoves) {
 }
 
 } // namespace input
-
-#endif
