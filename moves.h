@@ -3,197 +3,211 @@
 #include "board.h"
 #include "pieces.h"
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
-typedef uint64_t Bitboard;
-
 class Moves {
 private:
-  // save row masks for moves
-  const Bitboard RANK_1 = -72057594037927936L;
-  const Bitboard RANK_4 = 1095216660480L;
-  const Bitboard RANK_5 = 4278190080L;
-  const Bitboard RANK_8 = 255L;
+  std::vector<Checkers::MoveData> moveHistory;
 
-  // save column masks for moves
-  const Bitboard FILE_A = 72340172838076673L;
-  const Bitboard FILE_AB = 217020518514230019L;
-  const Bitboard FILE_H = -9187201950435737472L;
-  const Bitboard FILE_GH = -4557430888798830400L;
+  void decodeMoveSquares(const Checkers::MoveCords &move,
+                         Checkers::Bitboard &startSquare,
+                         Checkers::Bitboard &endSquare) const {
+    const int BOARD_SIZE = 8;
+    const int ROW_SIZE = 4;
 
-  enum class PieceType {
-    WhitePieces,
-    BlackPieces,
-    WhiteKings,
-    BlackKings,
-    None
-  };
-  struct SelectedBoards {
-    Bitboard startSquare;
-    Bitboard endSquare;
-  };
-  struct BoardState {
-    PieceType name;
-    Bitboard board;
-  };
-  struct MoveData {
-    BoardState boardState1;
-    BoardState boardState2;
-    BoardState boardState3;
-  };
-  std::vector<MoveData> moveHistory;
+    startSquare = 1L << (move.x1 + (BOARD_SIZE - 1 - move.y1) * ROW_SIZE);
+    endSquare = 1L << (move.x2 + (BOARD_SIZE - 1 - move.y2) * ROW_SIZE);
+  }
 
-public:
-  Moves(){};
+  Checkers::PieceName getBoardName(const Checkers::Pieces &pieces,
+                                   const Checkers::Bitboard &board) const {
+    using namespace Checkers;
 
-  BoardState &getSelectedBoardState(Pieces &pieces, const Bitboard &board) {
     if (pieces.whitePieces & board) {
-      return {PieceType::WhitePieces, pieces.whitePieces};
+      return PieceName::WhitePieces;
     } else if (pieces.blackPieces & board) {
-      return {PieceType::BlackPieces, pieces.blackPieces};
+      return PieceName::BlackPieces;
     } else if (pieces.whiteKings & board) {
-      return {PieceType::WhiteKings, pieces.whiteKings};
+      return PieceName::WhiteKings;
     } else if (pieces.blackKings & board) {
-      return {PieceType::BlackKings, pieces.blackKings};
+      return PieceName::BlackKings;
     } else {
-      return {PieceType::None, 0};
+      return PieceName::None;
     }
   }
 
-  SelectedBoards extractSelectedBoards(const std::string &move) {
-    const int x1 = move[1] - '0';
-    const int y1 = move[2] - '0';
-    const int x2 = move[3] - '0';
-    const int y2 = move[4] - '0';
-    const Bitboard startSquare = 1L << (x1 + (7 - y1) * 8);
-    const Bitboard endSquare = 1L << (x2 + (7 - y2) * 8);
-    return {startSquare, endSquare};
+  Checkers::Bitboard &getBoard(Checkers::Pieces &pieces,
+                               Checkers::PieceName name) const {
+    using namespace Checkers;
+
+    switch (name) {
+    default:
+    case PieceName::WhitePieces:
+      return pieces.whitePieces;
+    case PieceName::WhiteKings:
+      return pieces.whiteKings;
+    case PieceName::BlackPieces:
+      return pieces.blackPieces;
+    }
   }
 
-  void tryToDeleteCapture(Pieces &pieces, MoveData &moveData,
-                          const Bitboard captureSquare) {
-    BoardState &boardState = getSelectedBoardState(pieces, captureSquare);
-    moveData.boardState2 = boardState;
-    boardState.board ^= captureSquare;
+  void tryToDeleteCapture(Checkers::Pieces &pieces,
+                          Checkers::MoveData &moveData,
+                          const Checkers::Bitboard captureSquare) const {
+    Checkers::PieceName pieceName = getBoardName(pieces, captureSquare);
+    Checkers::Bitboard &pieceBoard = getBoard(pieces, pieceName);
+
+    moveData.name1 = pieceName;
+    moveData.board1 = pieceBoard;
+
+    pieceBoard ^= captureSquare;
   }
 
-  void tryToMove(Pieces &pieces, MoveData &moveData, const Bitboard startSquare,
-                 const Bitboard endSquare) {
-    BoardState &boardState = getSelectedBoardState(pieces, startSquare);
-    moveData.boardState1 = boardState;
-    boardState.board ^= startSquare | endSquare;
+  void tryToMove(Checkers::Pieces &pieces, Checkers::MoveData &moveData,
+                 const Checkers::Bitboard &startSquare,
+                 const Checkers::Bitboard &endSquare) const {
+    Checkers::PieceName pieceName = getBoardName(pieces, startSquare);
+    Checkers::Bitboard &pieceBoard = getBoard(pieces, pieceName);
+
+    moveData.name2 = pieceName;
+    moveData.board2 = pieceBoard;
+
+    pieceBoard ^= startSquare | endSquare;
   }
 
-  void tryToPromote(Pieces &pieces, MoveData &moveData,
-                    const Bitboard endSquare) {
-    const Bitboard whitePromoteMask = 0x55;
-    const Bitboard blackPromoteMask = 0xAA00000000000000;
-    if (pieces.whitePieces & whitePromoteMask) {
-      BoardState boardState = {PieceType::WhitePieces, pieces.whitePieces};
+  void tryToPromote(Checkers::Pieces &pieces, Checkers::MoveData &moveData,
+                    const Checkers::Bitboard endSquare) const {
+    using namespace Checkers;
+
+    PieceName pieceName = getBoardName(pieces, endSquare);
+    // std::cout << "kjfsdjkl: " << pieceName;
+    if (endSquare & ROW_1 && pieceName == PieceName::WhitePieces) {
+      moveData.name3 = PieceName::WhiteKings;
+      moveData.board3 = pieces.whiteKings;
+
       pieces.whitePieces ^= endSquare;
       pieces.whiteKings ^= endSquare;
-    } else if (pieces.blackPieces & blackPromoteMask) {
-      BoardState boardState = {PieceType::BlackPieces, pieces.blackPieces};
+    } else if (endSquare & ROW_8 && pieceName == PieceName::BlackPieces) {
+      moveData.name3 = PieceName::BlackKings;
+      moveData.board3 = pieces.blackKings;
+
       pieces.blackPieces ^= endSquare;
       pieces.blackKings ^= endSquare;
     }
   }
 
-  void doMove(const std::string move, Pieces &pieces, const bool isWhiteTurn) {
-    MoveData moveData;
-    const SelectedBoards selectedBoards = extractSelectedBoards(move);
-    const Bitboard captureSquare = isWhiteTurn
-                                       ? selectedBoards.startSquare << 8
-                                       : selectedBoards.startSquare >> 8;
+  void addMoves(std::vector<Checkers::MoveCords> &allMoves,
+                const Checkers::Bitboard selectedBoard,
+                const Checkers::Bitboard occupied, const int shift,
+                const int rowOffset, const int colOffset,
+                const Checkers::Bitboard colMask,
+                const Checkers::Bitboard rowMask) const {
+    Checkers::Bitboard moveBoard =
+        (shift > 0 ? selectedBoard >> shift : selectedBoard << -shift) &
+        ~occupied & colMask & rowMask;
 
-    tryToDeleteCapture(pieces, moveData, captureSquare);
-    tryToMove(pieces, moveData, selectedBoards.startSquare,
-              selectedBoards.endSquare);
-    tryToPromote(pieces, moveData, selectedBoards.endSquare);
+    while (moveBoard) {
+      int index = __builtin_ctzll(moveBoard);
+      int col = index % 4;
+      int row = index / 4;
+      Checkers::MoveCords move;
+      move.x1 = row + rowOffset;
+      move.y1 = 7 - (col + colOffset);
+      move.x2 = row;
+      move.y2 = 7 - col;
+      allMoves.push_back(move);
+      moveBoard &= moveBoard - 1;
+    }
+  }
+
+public:
+  void doMove(const Checkers::MoveCords move, Checkers::Pieces &pieces,
+              const bool isWhiteTurn) {
+    using namespace Checkers;
+
+    MoveData moveData;
+    Bitboard startSquare, endSquare;
+    decodeMoveSquares(move, startSquare, endSquare);
+    // const Bitboard captureSquare =
+    //     isWhiteTurn ? startSquare << 8 : startSquare >> 8;
+
+    // tryToDeleteCapture(pieces, moveData, captureSquare);
+    tryToMove(pieces, moveData, startSquare, endSquare);
+    // tryToPromote(pieces, moveData, endSquare);
 
     moveHistory.push_back(moveData);
   }
 
-  void undoMove(Pieces &pieces) {
-    // const MoveData moveData = moveHistory.back();
-    // moveHistory.pop_back();
+  void undoMove(Checkers::Pieces &pieces) {
+    using namespace Checkers;
 
-    // for (int i = 0; i < 3; ++i) {
-    //   switch (moveData[i].name) {
-    //   case (PieceType::WhitePieces):
-    //     pieces.whitePieces = moveData[i].board;
-    //     break;
-    //   case (PieceType::BlackPieces):
-    //     pieces.blackPieces = moveData[i].board;
-    //     break;
-    //   case (PieceType::WhiteKings):
-    //     pieces.whiteKings = moveData[i].board;
-    //     break;
-    //   case (PieceType::BlackKings):
-    //     pieces.blackKings = moveData[i].board;
-    //     break;
-    //   }
-    // }
-  }
+    const MoveData moveData = moveHistory.back();
+    const std::vector<PieceName> names = {moveData.name1, moveData.name2,
+                                          moveData.name3};
+    const std::vector<Bitboard> boards = {moveData.board1, moveData.board2,
+                                          moveData.board3};
+    moveHistory.pop_back();
 
-  std::string generateMoves(Pieces &pieces, Bitboard pieceBoard,
-                            Bitboard occupied, int shift, int rowOffset,
-                            int colOffset, Bitboard fileMask,
-                            Bitboard rankMask) {
-    std::string moves = "";
-    Bitboard moveBoard = pieceBoard;
-    moveBoard = (shift > 0 ? moveBoard >> shift : moveBoard << -shift) &
-                ~occupied & fileMask & rankMask;
-
-    while (moveBoard) {
-      int index = __builtin_ctzll(moveBoard);
-      int row = index % 8;
-      int col = index / 8;
-      moves += " " + std::to_string(row + rowOffset) +
-               std::to_string(7 - (col + colOffset)) + std::to_string(row) +
-               std::to_string(7 - col);
-      moveBoard &= moveBoard - 1;
+    for (int i = 0; i < 3; ++i) {
+      switch (names[i]) {
+      case (PieceName::WhitePieces):
+        pieces.whitePieces = boards[i];
+        break;
+      case (PieceName::BlackPieces):
+        pieces.blackPieces = boards[i];
+        break;
+      case (PieceName::WhiteKings):
+        pieces.whiteKings = boards[i];
+        break;
+      case (PieceName::BlackKings):
+        pieces.blackKings = boards[i];
+        break;
+      }
     }
-    return moves;
   }
 
-  std::string possibleMovesWhite(Pieces &pieces) {
-    const Bitboard occupiedWhite = pieces.whitePieces | pieces.whiteKings;
-    std::string allMoves = "";
+  std::vector<Checkers::MoveCords> possibleMoves(const Checkers::Pieces &pieces,
+                                                 const bool isWhiteTurn) const {
+    using namespace Checkers;
 
-    // Left Forward Capture (Pawns and Kings)
-    allMoves += generateMoves(pieces, pieces.whitePieces | pieces.whiteKings,
-                              occupiedWhite, 9, 1, 1, ~FILE_H, ~RANK_8);
-    // Right Forward Capture (Pawns and Kings)
-    allMoves += generateMoves(pieces, pieces.whitePieces | pieces.whiteKings,
-                              occupiedWhite, 7, 1, 1, ~FILE_A, ~RANK_8);
-    // Left Back Capture (Kings)
-    allMoves += generateMoves(pieces, pieces.whiteKings, occupiedWhite, -9, 1,
-                              -1, ~FILE_H, ~RANK_1);
-    // Right Back Capture (Kings)
-    allMoves += generateMoves(pieces, pieces.whiteKings, occupiedWhite, -7, -1,
-                              -1, ~FILE_A, ~RANK_1);
+    const int LEFT_FORWARD = 9;
+    const int RIGHT_FORWARD = 7;
+    const int LEFT_BACK = -9;
+    const int RIGHT_BACK = -7;
 
-    return allMoves;
-  }
+    const Bitboard occupied = pieces.whitePieces | pieces.whiteKings |
+                              pieces.blackPieces | pieces.blackKings;
+    std::vector<MoveCords> allMoves;
 
-  std::string possibleMovesBlack(Pieces &pieces) {
-    const Bitboard occupiedBlack = pieces.blackPieces | pieces.blackKings;
-    std::string allMoves = "";
-
-    // Left Forward Capture (Kings)
-    allMoves += generateMoves(pieces, pieces.blackPieces | pieces.blackKings,
-                              occupiedBlack, 9, 1, 1, ~FILE_H, ~RANK_8);
-    // Right Forward Capture (Kings)
-    allMoves += generateMoves(pieces, pieces.blackPieces | pieces.blackKings,
-                              occupiedBlack, 7, 1, 1, ~FILE_A, ~RANK_8);
-    // Left Back Capture (Pawns and Kings)
-    allMoves += generateMoves(pieces, pieces.blackKings, occupiedBlack, -9, 1,
-                              -1, ~FILE_H, ~RANK_1);
-    // Right Back Capture (Pawns and Kings)
-    allMoves += generateMoves(pieces, pieces.blackKings, occupiedBlack, -7, -1,
-                              -1, ~FILE_A, ~RANK_1);
+    if (isWhiteTurn) {
+      // Left Forward Capture (Pawns and Kings)
+      addMoves(allMoves, pieces.whitePieces | pieces.whiteKings, occupied,
+               LEFT_FORWARD, 1, 1, ~COL_4, ~ROW_1);
+      // Right Forward Capture (Pawns and Kings)
+      addMoves(allMoves, pieces.whitePieces | pieces.whiteKings, occupied,
+               RIGHT_FORWARD, 1, 1, ~COL_1, ~ROW_1);
+      // Left Back Capture (Kings)
+      addMoves(allMoves, pieces.whiteKings, occupied, LEFT_BACK, 1, -1, ~COL_4,
+               ~ROW_8);
+      // Right Back Capture (Kings)
+      addMoves(allMoves, pieces.whiteKings, occupied, RIGHT_BACK, -1, -1,
+               ~COL_1, ~ROW_8);
+    } else {
+      // Left Forward Capture (Kings)
+      addMoves(allMoves, pieces.blackPieces | pieces.blackKings, occupied,
+               LEFT_FORWARD, 1, 1, ~COL_4, ~ROW_1);
+      // Right Forward Capture (Kings)
+      addMoves(allMoves, pieces.blackPieces | pieces.blackKings, occupied,
+               RIGHT_FORWARD, 1, 1, ~COL_1, ~ROW_1);
+      // Left Back Capture (Pawns and Kings)
+      addMoves(allMoves, pieces.blackKings, occupied, LEFT_BACK, 1, -1, ~COL_4,
+               ~ROW_8);
+      // Right Back Capture (Pawns and Kings)
+      addMoves(allMoves, pieces.blackKings, occupied, RIGHT_BACK, -1, -1,
+               ~COL_1, ~ROW_8);
+    }
 
     return allMoves;
   }
